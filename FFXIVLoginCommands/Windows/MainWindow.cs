@@ -1,0 +1,526 @@
+using System;
+using System.Collections.Generic;
+using System.Numerics;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Dalamud.Bindings.ImGui;
+using Dalamud.Interface.Windowing;
+
+namespace FFXIVLoginCommands.Windows;
+
+public class MainWindow : Window, IDisposable
+{
+    private readonly Plugin plugin;
+    private readonly JsonSerializerOptions jsonOptions;
+
+    private int selectedProfileIndex = -1;
+    private int selectedTargetIndex = 0;
+    private string importExportText = string.Empty;
+    private string importExportStatus = string.Empty;
+    private string logSearchText = string.Empty;
+    private int logStatusFilterIndex = 0;
+
+    public MainWindow(Plugin plugin)
+        : base("FFXIV Login Commands##MainWindow", ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse)
+    {
+        SizeConstraints = new WindowSizeConstraints
+        {
+            MinimumSize = new Vector2(900, 620),
+            MaximumSize = new Vector2(float.MaxValue, float.MaxValue)
+        };
+
+        this.plugin = plugin;
+        jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() }
+        };
+    }
+
+    public void Dispose() { }
+
+    public override void Draw()
+    {
+        ImGui.Text($"Active character: {plugin.ActiveCharacterDisplay}");
+
+        if (!ImGui.BeginTabBar("FFXIVLoginCommandsTabs"))
+        {
+            return;
+        }
+
+        if (ImGui.BeginTabItem("Profiles"))
+        {
+            DrawProfilesTab();
+            ImGui.EndTabItem();
+        }
+
+        if (ImGui.BeginTabItem("Commands"))
+        {
+            DrawCommandsTab();
+            ImGui.EndTabItem();
+        }
+
+        if (ImGui.BeginTabItem("Execution"))
+        {
+            DrawExecutionTab();
+            ImGui.EndTabItem();
+        }
+
+        if (ImGui.BeginTabItem("Logs"))
+        {
+            DrawLogsTab();
+            ImGui.EndTabItem();
+        }
+
+        if (ImGui.BeginTabItem("Import/Export"))
+        {
+            DrawImportExportTab();
+            ImGui.EndTabItem();
+        }
+
+        if (ImGui.BeginTabItem("About"))
+        {
+            DrawAboutTab();
+            ImGui.EndTabItem();
+        }
+
+        ImGui.EndTabBar();
+    }
+
+    private void DrawProfilesTab()
+    {
+        var configuration = plugin.Configuration;
+        ImGui.Text("Profiles for specific characters.");
+        ImGui.Separator();
+
+        if (ImGui.Button("Add Profile"))
+        {
+            var profile = new Profile();
+            if (plugin.TryGetCurrentCharacterInfo(out var newProfileInfo))
+            {
+                profile.CharacterName = newProfileInfo.Name;
+                profile.WorldId = newProfileInfo.WorldId;
+                profile.WorldName = newProfileInfo.WorldName;
+                profile.Label = $"{newProfileInfo.Name} ({newProfileInfo.WorldName})";
+            }
+
+            configuration.Profiles.Add(profile);
+            selectedProfileIndex = configuration.Profiles.Count - 1;
+            configuration.Save();
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("Delete Profile") && selectedProfileIndex >= 0 && selectedProfileIndex < configuration.Profiles.Count)
+        {
+            configuration.Profiles.RemoveAt(selectedProfileIndex);
+            selectedProfileIndex = Math.Min(selectedProfileIndex, configuration.Profiles.Count - 1);
+            configuration.Save();
+        }
+
+        ImGui.Spacing();
+
+        for (var i = 0; i < configuration.Profiles.Count; i++)
+        {
+            var profile = configuration.Profiles[i];
+            var label = string.IsNullOrWhiteSpace(profile.Label) ? $"Profile {i + 1}" : profile.Label;
+            var suffix = string.IsNullOrWhiteSpace(profile.CharacterName) ? string.Empty : $" - {profile.CharacterName}";
+            if (ImGui.Selectable($"{label}{suffix}", selectedProfileIndex == i))
+            {
+                selectedProfileIndex = i;
+            }
+        }
+
+        ImGui.Separator();
+
+        if (selectedProfileIndex < 0 || selectedProfileIndex >= configuration.Profiles.Count)
+        {
+            ImGui.Text("Select a profile to edit.");
+            return;
+        }
+
+        var selected = configuration.Profiles[selectedProfileIndex];
+        var enabled = selected.Enabled;
+        if (ImGui.Checkbox("Enabled", ref enabled))
+        {
+            selected.Enabled = enabled;
+            configuration.Save();
+        }
+
+        var labelText = selected.Label;
+        if (ImGui.InputText("Label", ref labelText, 120))
+        {
+            selected.Label = labelText;
+            configuration.Save();
+        }
+
+        var nameText = selected.CharacterName;
+        if (ImGui.InputText("Character Name", ref nameText, 120))
+        {
+            selected.CharacterName = nameText;
+            configuration.Save();
+        }
+
+        var worldName = selected.WorldName;
+        if (ImGui.InputText("World Name", ref worldName, 120))
+        {
+            selected.WorldName = worldName;
+            configuration.Save();
+        }
+
+        var worldId = (int)selected.WorldId;
+        if (ImGui.InputInt("World Id", ref worldId))
+        {
+            selected.WorldId = (ushort)Math.Clamp(worldId, 0, ushort.MaxValue);
+            configuration.Save();
+        }
+
+        if (ImGui.Button("Use Current Character") && plugin.TryGetCurrentCharacterInfo(out var currentInfo))
+        {
+            selected.CharacterName = currentInfo.Name;
+            selected.WorldId = currentInfo.WorldId;
+            selected.WorldName = currentInfo.WorldName;
+            if (string.IsNullOrWhiteSpace(selected.Label))
+            {
+                selected.Label = $"{currentInfo.Name} ({currentInfo.WorldName})";
+            }
+
+            configuration.Save();
+        }
+    }
+
+    private void DrawCommandsTab()
+    {
+        var configuration = plugin.Configuration;
+        var targetLabels = new List<string> { "Global Commands" };
+        foreach (var profile in configuration.Profiles)
+        {
+            targetLabels.Add(string.IsNullOrWhiteSpace(profile.Label) ? "Unnamed Profile" : profile.Label);
+        }
+
+        selectedTargetIndex = Math.Clamp(selectedTargetIndex, 0, targetLabels.Count - 1);
+
+        ImGui.Text("Configure command order, delay, and execution mode.");
+        ImGui.Separator();
+
+        ImGui.Combo("Target", ref selectedTargetIndex, targetLabels.ToArray(), targetLabels.Count);
+
+        List<CommandEntry> commandList;
+        if (selectedTargetIndex == 0)
+        {
+            commandList = configuration.GlobalCommands;
+            ImGui.Text("Editing global commands.");
+        }
+        else
+        {
+            var profileIndex = selectedTargetIndex - 1;
+            if (profileIndex < 0 || profileIndex >= configuration.Profiles.Count)
+            {
+                ImGui.Text("No profile selected.");
+                return;
+            }
+
+            var profile = configuration.Profiles[profileIndex];
+            commandList = profile.Commands;
+            ImGui.Text($"Editing commands for: {profile.Label}");
+        }
+
+        if (ImGui.Button("Add Command"))
+        {
+            commandList.Add(new CommandEntry
+            {
+                Name = "New Command",
+                CommandText = string.Empty,
+                DelayMs = 0,
+                RunMode = CommandRunMode.EveryLogin,
+                Enabled = true
+            });
+            configuration.Save();
+        }
+
+        ImGui.Spacing();
+
+        if (ImGui.BeginTable("CommandsTable", 7, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable))
+        {
+            ImGui.TableSetupColumn("Enabled", ImGuiTableColumnFlags.WidthFixed, 70);
+            ImGui.TableSetupColumn("Name", ImGuiTableColumnFlags.WidthFixed, 170);
+            ImGui.TableSetupColumn("Command", ImGuiTableColumnFlags.WidthStretch);
+            ImGui.TableSetupColumn("Delay (ms)", ImGuiTableColumnFlags.WidthFixed, 90);
+            ImGui.TableSetupColumn("Run Mode", ImGuiTableColumnFlags.WidthFixed, 120);
+            ImGui.TableSetupColumn("Order", ImGuiTableColumnFlags.WidthFixed, 80);
+            ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, 80);
+            ImGui.TableHeadersRow();
+
+            for (var i = 0; i < commandList.Count; i++)
+            {
+                var command = commandList[i];
+                ImGui.PushID(command.Id.ToString());
+                ImGui.TableNextRow();
+
+                ImGui.TableNextColumn();
+                var enabled = command.Enabled;
+                if (ImGui.Checkbox("##enabled", ref enabled))
+                {
+                    command.Enabled = enabled;
+                    configuration.Save();
+                }
+
+                ImGui.TableNextColumn();
+                var name = command.Name;
+                if (ImGui.InputText("##name", ref name, 120))
+                {
+                    command.Name = name;
+                    configuration.Save();
+                }
+
+                ImGui.TableNextColumn();
+                var commandText = command.CommandText;
+                if (ImGui.InputText("##command", ref commandText, 512))
+                {
+                    command.CommandText = commandText;
+                    configuration.Save();
+                }
+
+                ImGui.TableNextColumn();
+                var delayMs = command.DelayMs;
+                if (ImGui.InputInt("##delay", ref delayMs))
+                {
+                    command.DelayMs = Math.Max(0, delayMs);
+                    configuration.Save();
+                }
+
+                ImGui.TableNextColumn();
+                var runModeIndex = command.RunMode == CommandRunMode.EveryLogin ? 0 : 1;
+                var runModeOptions = new[] { "Every Login", "Once Per Session" };
+                if (ImGui.Combo("##runmode", ref runModeIndex, runModeOptions, runModeOptions.Length))
+                {
+                    command.RunMode = runModeIndex == 0 ? CommandRunMode.EveryLogin : CommandRunMode.OncePerSession;
+                    configuration.Save();
+                }
+
+                ImGui.TableNextColumn();
+                if (ImGui.Button("Up") && i > 0)
+                {
+                    (commandList[i - 1], commandList[i]) = (commandList[i], commandList[i - 1]);
+                    configuration.Save();
+                }
+                ImGui.SameLine();
+                if (ImGui.Button("Down") && i < commandList.Count - 1)
+                {
+                    (commandList[i + 1], commandList[i]) = (commandList[i], commandList[i + 1]);
+                    configuration.Save();
+                }
+
+                ImGui.TableNextColumn();
+                if (ImGui.Button("Delete"))
+                {
+                    commandList.RemoveAt(i);
+                    configuration.Save();
+                    ImGui.PopID();
+                    break;
+                }
+
+                ImGui.PopID();
+            }
+
+            ImGui.EndTable();
+        }
+    }
+
+    private void DrawExecutionTab()
+    {
+        var pendingCount = plugin.PendingQueue.Count;
+        ImGui.Text($"Pending commands: {pendingCount}");
+
+        if (ImGui.Button("Run Next Now") && pendingCount > 0)
+        {
+            plugin.RunEntryNow(plugin.PendingQueue[0]);
+        }
+        ImGui.SameLine();
+        if (ImGui.Button("Skip Next") && pendingCount > 0)
+        {
+            plugin.SkipEntry(plugin.PendingQueue[0], "Skipped by user");
+        }
+        ImGui.SameLine();
+        if (ImGui.Button("Clear Pending"))
+        {
+            plugin.ClearPendingQueue();
+        }
+
+        ImGui.Spacing();
+
+        if (ImGui.BeginTable("ExecutionTable", 6, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable))
+        {
+            ImGui.TableSetupColumn("#", ImGuiTableColumnFlags.WidthFixed, 40);
+            ImGui.TableSetupColumn("Command", ImGuiTableColumnFlags.WidthStretch);
+            ImGui.TableSetupColumn("Delay (ms)", ImGuiTableColumnFlags.WidthFixed, 90);
+            ImGui.TableSetupColumn("Status", ImGuiTableColumnFlags.WidthFixed, 90);
+            ImGui.TableSetupColumn("Message", ImGuiTableColumnFlags.WidthStretch);
+            ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, 100);
+            ImGui.TableHeadersRow();
+
+            foreach (var entry in new List<Plugin.ExecutionEntry>(plugin.ExecutionPlan))
+            {
+                ImGui.PushID(entry.SequenceIndex);
+                ImGui.TableNextRow();
+                ImGui.TableNextColumn();
+                ImGui.Text(entry.SequenceIndex.ToString());
+                ImGui.TableNextColumn();
+                ImGui.Text(entry.Command.CommandText);
+                ImGui.TableNextColumn();
+                ImGui.Text(entry.Command.DelayMs.ToString());
+                ImGui.TableNextColumn();
+                ImGui.Text(entry.Status.ToString());
+                ImGui.TableNextColumn();
+                ImGui.Text(entry.Message);
+                ImGui.TableNextColumn();
+
+                if (entry.Status == CommandStatus.Pending)
+                {
+                    if (ImGui.Button("Run"))
+                    {
+                        plugin.RunEntryNow(entry);
+                    }
+                    ImGui.SameLine();
+                    if (ImGui.Button("Skip"))
+                    {
+                        plugin.SkipEntry(entry, "Skipped by user");
+                    }
+                }
+                else
+                {
+                    ImGui.Text("-");
+                }
+
+                ImGui.PopID();
+            }
+
+            ImGui.EndTable();
+        }
+    }
+
+    private void DrawLogsTab()
+    {
+        var configuration = plugin.Configuration;
+
+        ImGui.Text("Execution history.");
+        ImGui.Separator();
+
+        ImGui.InputText("Search", ref logSearchText, 200);
+        var statusOptions = new[] { "All", "Sent", "Skipped", "Error" };
+        ImGui.Combo("Status", ref logStatusFilterIndex, statusOptions, statusOptions.Length);
+
+        if (ImGui.Button("Clear Logs"))
+        {
+            configuration.Logs.Clear();
+            configuration.Save();
+        }
+
+        ImGui.Spacing();
+
+        if (ImGui.BeginTable("LogsTable", 5, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable))
+        {
+            ImGui.TableSetupColumn("Time (UTC)", ImGuiTableColumnFlags.WidthFixed, 150);
+            ImGui.TableSetupColumn("Character", ImGuiTableColumnFlags.WidthFixed, 140);
+            ImGui.TableSetupColumn("Status", ImGuiTableColumnFlags.WidthFixed, 90);
+            ImGui.TableSetupColumn("Command", ImGuiTableColumnFlags.WidthStretch);
+            ImGui.TableSetupColumn("Message", ImGuiTableColumnFlags.WidthStretch);
+            ImGui.TableHeadersRow();
+
+            foreach (var log in new List<LogEntry>(configuration.Logs))
+            {
+                if (!string.IsNullOrWhiteSpace(logSearchText) &&
+                    !log.CommandText.Contains(logSearchText, StringComparison.OrdinalIgnoreCase) &&
+                    !log.Message.Contains(logSearchText, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (logStatusFilterIndex != 0)
+                {
+                    var filterStatus = logStatusFilterIndex switch
+                    {
+                        1 => CommandStatus.Sent,
+                        2 => CommandStatus.Skipped,
+                        3 => CommandStatus.Error,
+                        _ => CommandStatus.Sent
+                    };
+
+                    if (log.Status != filterStatus)
+                    {
+                        continue;
+                    }
+                }
+
+                ImGui.TableNextRow();
+                ImGui.TableNextColumn();
+                ImGui.Text(log.TimestampUtc.ToString("yyyy-MM-dd HH:mm:ss"));
+                ImGui.TableNextColumn();
+                ImGui.Text(log.CharacterKey);
+                ImGui.TableNextColumn();
+                ImGui.Text(log.Status.ToString());
+                ImGui.TableNextColumn();
+                ImGui.Text(log.CommandText);
+                ImGui.TableNextColumn();
+                ImGui.Text(log.Message);
+            }
+
+            ImGui.EndTable();
+        }
+    }
+
+    private void DrawImportExportTab()
+    {
+        var configuration = plugin.Configuration;
+        ImGui.Text("Import or export profiles and global commands as JSON.");
+        ImGui.Separator();
+
+        if (ImGui.Button("Export Settings"))
+        {
+            var export = new SettingsExport
+            {
+                Profiles = configuration.Profiles,
+                GlobalCommands = configuration.GlobalCommands
+            };
+
+            importExportText = JsonSerializer.Serialize(export, jsonOptions);
+            importExportStatus = "Exported settings.";
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("Import Settings"))
+        {
+            try
+            {
+                var imported = JsonSerializer.Deserialize<SettingsExport>(importExportText, jsonOptions);
+                if (imported == null)
+                {
+                    importExportStatus = "Import failed: invalid JSON.";
+                }
+                else
+                {
+                    configuration.Profiles = imported.Profiles ?? new List<Profile>();
+                    configuration.GlobalCommands = imported.GlobalCommands ?? new List<CommandEntry>();
+                    configuration.Save();
+                    importExportStatus = "Import complete.";
+                }
+            }
+            catch (Exception ex)
+            {
+                importExportStatus = $"Import failed: {ex.Message}";
+            }
+        }
+
+        ImGui.Text(importExportStatus);
+        ImGui.InputTextMultiline("##importexport", ref importExportText, 20000, new Vector2(-1, 360));
+    }
+
+    private void DrawAboutTab()
+    {
+        ImGui.Text("FFXIV Login Commands");
+        ImGui.Text($"Version: {Plugin.PluginInterface.Manifest.AssemblyVersion}");
+        ImGui.Text($"Author: {Plugin.PluginInterface.Manifest.Author}");
+        ImGui.Separator();
+        ImGui.Text("Repository: https://github.com/AEBus/FFXIV-Login-Commands");
+        ImGui.Text("Documentation: https://github.com/AEBus/FFXIV-Login-Commands");
+    }
+}

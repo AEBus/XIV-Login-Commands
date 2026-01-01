@@ -1,7 +1,8 @@
-﻿using Dalamud.Configuration;
+using Dalamud.Configuration;
 using System;
+using System.Collections.Generic;
 
-namespace SamplePlugin;
+namespace FFXIVLoginCommands;
 
 [Serializable]
 public class Configuration : IPluginConfiguration
@@ -9,7 +10,9 @@ public class Configuration : IPluginConfiguration
     public int Version { get; set; } = 0;
 
     public bool IsConfigWindowMovable { get; set; } = true;
-    public bool SomePropertyToBeSavedAndWithADefault { get; set; } = true;
+    public List<Profile> Profiles { get; set; } = new();
+    public List<CommandEntry> GlobalCommands { get; set; } = new();
+    public List<LogEntry> Logs { get; set; } = new();
 
     // The below exists just to make saving less cumbersome
     public void Save()
