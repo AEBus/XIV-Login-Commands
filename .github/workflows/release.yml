@@ -1,101 +1,59 @@
-name: Release
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+name: Create Release
 
 on:
   push:
     tags:
-      - "v*"
+      - "*"
 
 permissions:
   contents: write
 
 jobs:
-  Release:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash
-    env:
-      DALAMUD_HOME: /tmp/dalamud
-      IsCI: true
+  build:
+    if: ${{ !startsWith(github.ref_name, 'testing_') }}
+    runs-on: windows-latest
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: |
+            10.x.x
+            9.x.x
 
-      - name: Extract version
+      - name: Restore dependencies
+        run: dotnet restore FFXIVLoginCommands.sln
+
+      - name: Download Dalamud
         run: |
-          tag=${{ github.ref_name }}
-          if [[ $tag =~ ^v(.+)$ ]]; then
-              version="${BASH_REMATCH[1]}"
-          else
-              echo "Tag format not recognized"
-              exit 1
-          fi
-          echo "VERSION=$version" >> $GITHUB_ENV
+          Invoke-WebRequest -Uri https://goatcorp.github.io/dalamud-distrib/stg/latest.zip -OutFile latest.zip
+          Expand-Archive -Force latest.zip "$env:AppData\XIVLauncher\addon\Hooks\dev\"
 
-      - name: Download Dalamud Library
+      - name: Build
+        shell: pwsh
         run: |
-          wget https://goatcorp.github.io/dalamud-distrib/latest.zip -O /tmp/dalamud.zip
-          unzip /tmp/dalamud.zip -d /tmp/dalamud
+          $ver = '${{ github.ref_name }}' -replace '^v'
+          dotnet build FFXIVLoginCommands.sln --no-restore --configuration Release --nologo -p:Platform=x64 -p:Version=$ver -p:FileVersion=$ver -p:AssemblyVersion=$ver
 
-      - name: Restore Dependencies
-        run: dotnet restore
+      - name: Archive
+        shell: pwsh
+        run: Copy-Item -LiteralPath "FFXIVLoginCommands/bin/x64/Release/FFXIVLoginCommands/latest.zip" -Destination "FFXIVLoginCommands.zip" -Force
 
-      - name: Build plugin in release mode
-        run: |
-          dotnet build -c Release --no-restore --nologo \
-          -p:Version=${{ env.VERSION }} \
-          -p:AssemblyVersion=${{ env.VERSION }} \
-          -p:FileVersion=${{ env.VERSION }}
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FFXIVLoginCommands-Release
+          path: ./FFXIVLoginCommands.zip
 
-      - name: Generate Checksums & Export ApiLevel
-        working-directory: FFXIVLoginCommands/bin/x64/Release/FFXIVLoginCommands
-        run: |
-          sha512sum latest.zip >> checksums.sha512
-          dalamud_api_level=$(jq -r '.DalamudApiLevel' FFXIVLoginCommands.json)
-          echo "DALAMUD_API_LEVEL=$dalamud_api_level" >> $GITHUB_ENV
-
-      - name: Create GitHub Release
+      - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            FFXIVLoginCommands/bin/x64/Release/FFXIVLoginCommands/latest.zip
-            FFXIVLoginCommands/bin/x64/Release/FFXIVLoginCommands/checksums.sha512
+          name: FFXIV Login Commands ${{ github.ref_name }}
+          body: |
+            - Updated for Dalamud API 15 / FFXIV Patch 7.5.
+            - Existing login command configuration and execution behavior are unchanged.
+          files: ./FFXIVLoginCommands.zip
           prerelease: false
-          append_body: true
-          generate_release_notes: true
-          fail_on_unmatched_files: true
-
-      - name: Update repo.json
-        run: |
-          git fetch origin master
-          git checkout master
-          git pull --rebase origin master
-
-          release_version="${{ env.VERSION }}"
-          repo_url="${{ github.server_url }}/${{ github.repository }}"
-          jq --arg release_version "$release_version" \
-          --arg repo_url "$repo_url/releases/download/${{ github.ref_name }}/latest.zip" \
-          '.[0].AssemblyVersion = $release_version |
-          .[0].TestingAssemblyVersion = $release_version |
-          .[0].DownloadLinkInstall = $repo_url |
-          .[0].DownloadLinkUpdate = $repo_url |
-          .[0].DownloadLinkTesting = $repo_url |
-          .[0].DalamudApiLevel = '"${{ env.DALAMUD_API_LEVEL }}"' |
-          .[0].TestingDalamudApiLevel = '"${{ env.DALAMUD_API_LEVEL }}"'' \
-          repo.json > tmp.json && mv tmp.json repo.json
-
-          git add repo.json
-          git config --local user.name "github-actions [bot]"
-          git config --local user.email "github-actions@users.noreply.github.com"
-          if git diff --cached --quiet; then exit 0; fi
-          git commit -m "Update repo.json for ${{ github.ref_name }}"
-          git push origin master

@@ -45,13 +45,13 @@ public class MainWindow : Window, IDisposable
         ImGui.Text($"Active character: {plugin.ActiveCharacterDisplay}");
         ImGui.Separator();
 
-        using var tabBar = ImRaii.TabBar("FFXIVLoginCommandsTabs");
+        using var tabBar = ImRaii.TabBar("FFXIVLoginCommandsTabs"u8);
         if (!tabBar)
         {
             return;
         }
 
-        using (var overviewTab = ImRaii.TabItem("Overview"))
+        using (var overviewTab = ImRaii.TabItem("Overview"u8))
         {
             if (overviewTab)
             {
@@ -59,7 +59,7 @@ public class MainWindow : Window, IDisposable
             }
         }
 
-        using (var profilesTab = ImRaii.TabItem("Profiles"))
+        using (var profilesTab = ImRaii.TabItem("Profiles"u8))
         {
             if (profilesTab)
             {
@@ -67,7 +67,7 @@ public class MainWindow : Window, IDisposable
             }
         }
 
-        using (var commandsTab = ImRaii.TabItem("Commands"))
+        using (var commandsTab = ImRaii.TabItem("Commands"u8))
         {
             if (commandsTab)
             {
@@ -75,7 +75,7 @@ public class MainWindow : Window, IDisposable
             }
         }
 
-        using (var executionTab = ImRaii.TabItem("Execution"))
+        using (var executionTab = ImRaii.TabItem("Execution"u8))
         {
             if (executionTab)
             {
@@ -83,7 +83,7 @@ public class MainWindow : Window, IDisposable
             }
         }
 
-        using (var importExportTab = ImRaii.TabItem("Import/Export"))
+        using (var importExportTab = ImRaii.TabItem("Import/Export"u8))
         {
             if (importExportTab)
             {
@@ -91,7 +91,7 @@ public class MainWindow : Window, IDisposable
             }
         }
 
-        using (var devTab = ImRaii.TabItem("Dev"))
+        using (var devTab = ImRaii.TabItem("Dev"u8))
         {
             if (devTab)
             {
@@ -99,7 +99,7 @@ public class MainWindow : Window, IDisposable
             }
         }
 
-        using (var aboutTab = ImRaii.TabItem("About"))
+        using (var aboutTab = ImRaii.TabItem("About"u8))
         {
             if (aboutTab)
             {
@@ -277,7 +277,7 @@ public class MainWindow : Window, IDisposable
 
         ImGui.Spacing();
 
-        using (var commandsTable = ImRaii.Table("CommandsTable", 7, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable))
+        using (var commandsTable = ImRaii.Table("CommandsTable"u8, 7, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable))
         {
             if (!commandsTable)
             {
@@ -386,7 +386,7 @@ public class MainWindow : Window, IDisposable
 
         ImGui.Spacing();
 
-        using (var executionTable = ImRaii.Table("ExecutionTable", 6, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable))
+        using (var executionTable = ImRaii.Table("ExecutionTable"u8, 6, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable))
         {
             if (!executionTable)
             {

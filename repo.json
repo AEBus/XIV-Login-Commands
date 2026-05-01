@@ -4,8 +4,8 @@
     "Name": "FFXIV Login Commands",
     "InternalName": "FFXIVLoginCommands",
     "Description": "Run chat commands automatically when you log in.",
-    "AssemblyVersion": "1.1.5.0",
-    "TestingAssemblyVersion": "1.1.5.0",
+    "AssemblyVersion": "1.1.6.0",
+    "TestingAssemblyVersion": "1.1.6.0",
     "RepoUrl": "https://github.com/AEBus/FFXIV-Login-Commands",
     "IconUrl": "https://github.com/AEBus/FFXIV-Login-Commands/raw/master/FFXIVLoginCommands/icon.png",
     "Tags": [
@@ -13,10 +13,10 @@
       "Commands",
       "Automation"
     ],
-    "DownloadLinkInstall": "https://github.com/AEBus/FFXIV-Login-Commands/releases/download/v1.1.5.0/latest.zip",
-    "DownloadLinkTesting": "https://github.com/AEBus/FFXIV-Login-Commands/releases/download/v1.1.5.0/latest.zip",
-    "DownloadLinkUpdate": "https://github.com/AEBus/FFXIV-Login-Commands/releases/download/v1.1.5.0/latest.zip",
-    "DalamudApiLevel": 14,
-    "TestingDalamudApiLevel": 14
+    "DownloadLinkInstall": "https://github.com/AEBus/FFXIV-Login-Commands/releases/download/v1.1.6.0/FFXIVLoginCommands.zip",
+    "DownloadLinkTesting": "https://github.com/AEBus/FFXIV-Login-Commands/releases/download/v1.1.6.0/FFXIVLoginCommands.zip",
+    "DownloadLinkUpdate": "https://github.com/AEBus/FFXIV-Login-Commands/releases/download/v1.1.6.0/FFXIVLoginCommands.zip",
+    "DalamudApiLevel": 15,
+    "TestingDalamudApiLevel": 15
   }
 ]
